@@ -1,0 +1,5 @@
+[package]
+
+name = "stemflow"
+version = "0.0.1"
+authors = ["Mickaël Salaün <mickael.salaun@ssi.gouv.fr>"]
