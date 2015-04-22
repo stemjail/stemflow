@@ -13,6 +13,7 @@
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp::Ordering;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use super::{Action, Access, vec2opt, VecAccess};
 
@@ -26,13 +27,13 @@ use std::env;
 /// > /foo(rw) + /foo/bar(ro) => /foo(rw)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileAccess {
-    path: Rc<Path>,
+    path: Rc<PathBuf>,
     pub action: Action,
 }
 
 macro_rules! new_access {
     ($name: ident, $($action: expr)+) => {
-        pub fn $name(path: Path) -> Result<Vec<FileAccess>, ()> {
+        pub fn $name(path: PathBuf) -> Result<Vec<FileAccess>, ()> {
             let path = Rc::new(path);
             let ret = vec!($(FileAccess::new(path.clone(), $action)),+);
             let len = ret.len();
@@ -46,13 +47,19 @@ macro_rules! new_access {
     }
 }
 
+impl AsRef<Path> for FileAccess {
+    fn as_ref(&self) -> &Path {
+        self.path.as_ref()
+    }
+}
+
 #[allow(dead_code)]
 impl FileAccess {
     new_access!(new_ro, Action::Read);
     new_access!(new_rw, Action::Read Action::Write);
     new_access!(new_wo, Action::Write);
 
-    pub fn new(path: Rc<Path>, action: Action) -> Result<Self, ()> {
+    pub fn new(path: Rc<PathBuf>, action: Action) -> Result<Self, ()> {
         // Enforce absolute path
         if !path.is_absolute() {
             return Err(());
@@ -64,7 +71,7 @@ impl FileAccess {
     }
 
     pub fn contains(&self, other: &Self) -> bool {
-        self.action == other.action && self.path.is_ancestor_of(&other.path)
+        self.action == other.action && other.as_ref().starts_with(self)
     }
 
     fn _greedy_ord(greedy: bool, a: &FileAccess, b: &FileAccess) -> Ordering {
@@ -142,11 +149,8 @@ impl VecAccess for Vec<Rc<FileAccess>> {
 }
 
 
-pub fn new_path(path: &str) -> Path {
-    let path = match Path::new_opt(path) {
-        Some(p) => p,
-        None => panic!("Fail to create path with {}", path),
-    };
+pub fn new_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
     if path.is_absolute() {
         path
     } else {
@@ -177,6 +181,7 @@ macro_rules! let_dom {
 mod tests {
     use {Access, Action, Domain, RcDomain, DomainKind, new_path, FileAccess, ResPool, vec2opt};
     use collections::BTreeSet;
+    use std::path::PathBuf;
     use std::rc::Rc;
 
     #[test]
@@ -188,7 +193,7 @@ mod tests {
         let dom2_acl = new_acl!(new_rw "/foo/bar");
         let_dom!(pool, dom2, dom2_acl.clone());
 
-        let fa1 = Rc::new(FileAccess::new(Rc::new(Path::new("/foo/bar")), Action::Read).unwrap());
+        let fa1 = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/foo/bar")), Action::Read).unwrap());
         let dom1_acl_inter = vec2opt(dom1_acl.iter().
                                       filter_map(|x| x.new_intersect_all(dom2_acl.clone())).
                                       flat_map(|x| x.into_iter()).collect());
@@ -212,7 +217,7 @@ mod tests {
         let_dom!(pool, dom1, new_acl!(new_rw "/foo"));
         let_dom!(pool, dom2, new_acl!(new_rw "/foo/bar"));
 
-        let bar_path = Rc::new(Path::new("/foo/bar"));
+        let bar_path = Rc::new(PathBuf::from("/foo/bar"));
         let fa1 = set!(
             Rc::new(FileAccess::new(bar_path.clone(), Action::Read).unwrap()),
             Rc::new(FileAccess::new(bar_path.clone(), Action::Write).unwrap())
@@ -489,7 +494,7 @@ mod tests {
         assert_eq!(pool.allow(&want).unwrap().name, "dom1 ∩ dom2 ∩ dom3".to_string());
         // FIXME: Only create an intersection domains, not new by pair (cf. underlays)
         assert_eq!(pool.allow(&want).unwrap().underlays.
-                   iter().map(|x| x.name.as_slice()).collect::<Vec<_>>(),
+                   iter().map(|x| x.name.as_str()).collect::<Vec<_>>(),
                    //["dom1", "dom2", "dom3"]);
                    ["dom1 ∩ dom2", "dom3"]);
     }
