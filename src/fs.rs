@@ -27,7 +27,7 @@ use std::env;
 /// > /foo(rw) + /foo/bar(ro) => /foo(rw)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileAccess {
-    path: Rc<PathBuf>,
+    pub path: Rc<PathBuf>,
     pub action: Action,
 }
 

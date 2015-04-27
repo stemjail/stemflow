@@ -35,11 +35,11 @@ macro_rules! set {
 
 mod fs;
 
-trait VecAccess {
+pub trait VecAccess {
     fn uniquify(mut self) -> Self;
 }
 
-trait Access {
+pub trait Access {
     fn new_intersect(&self, other: Self) -> Option<Self>;
     fn new_intersect_all(&self, other: Vec<Self>) -> Option<Vec<Self>>;
 }
@@ -78,7 +78,7 @@ enum DomainKind {
 pub struct Domain {
     pub name: String,
     kind: DomainKind,
-    acl: BTreeSet<Rc<FileAccess>>,
+    pub acl: BTreeSet<Rc<FileAccess>>,
     underlays: BTreeSet<Rc<Domain>>,
 }
 
@@ -292,7 +292,7 @@ impl ResPool {
 
     /// Record a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
-    fn insert_dom(&mut self, dom: Rc<Domain>) -> Rc<Domain> {
+    pub fn insert_dom(&mut self, dom: Rc<Domain>) -> Rc<Domain> {
         if ! self.domains.insert(dom.clone()) {
             // A BTreeSet::entry() would avoid unwrap()
             return self.domains.range(Bound::Included(&dom), Bound::Included(&dom)).
