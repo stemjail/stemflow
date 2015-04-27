@@ -149,16 +149,16 @@ impl VecAccess for Vec<Rc<FileAccess>> {
 }
 
 
-pub fn new_path(path: &str) -> PathBuf {
-    let path = PathBuf::from(path);
+pub fn new_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
+    let path = path.as_ref();
     if path.is_absolute() {
-        path
+        path.into()
     } else {
         let cwd = match env::current_dir() {
             Ok(d) => d,
             Err(e) => panic!("Fail to get current working directory: {}", e),
         };
-        cwd.join(&path)
+        cwd.join(path)
     }
 }
 
