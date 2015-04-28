@@ -41,6 +41,7 @@ pub trait VecAccess {
 }
 
 pub trait SetAccess {
+    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool;
     fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
     fn range_write<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
 }
@@ -161,10 +162,7 @@ macro_rules! get_allow {
 // Hack to use Rc with self
 impl RcDomain for Rc<Domain> {
     fn is_allowed(&self, access: &Rc<FileAccess>) -> bool {
-        match self.acl.range(Bound::Included(access), Bound::Unbounded).next() {
-            Some(x) => x.contains(access),
-            None => false,
-        }
+        self.acl.is_allowed(access)
     }
 
     fn allow(&self, acl: &Vec<Rc<FileAccess>>) -> Option<Vec<Rc<FileAccess>>> {

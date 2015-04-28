@@ -152,6 +152,13 @@ impl VecAccess for Vec<Rc<FileAccess>> {
 
 // TODO: Split FileAccess into a read set and a write set?
 impl SetAccess for BTreeSet<Rc<FileAccess>> {
+    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool {
+        match self.range(Bound::Included(access), Bound::Unbounded).next() {
+            Some(x) => x.contains(access),
+            None => false,
+        }
+    }
+
     fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>> {
         // The root is absolute, no possible error
         let read_root = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/")), Action::Read).unwrap());
