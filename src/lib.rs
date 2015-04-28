@@ -20,6 +20,7 @@ extern crate collections;
 
 use collections::{Bound, BTreeMap, BTreeSet};
 use collections::btree_map::Entry;
+use collections::btree_set::Range;
 use std::cmp::Ordering;
 use std::rc::Rc;
 
@@ -37,6 +38,11 @@ mod fs;
 
 pub trait VecAccess {
     fn uniquify(mut self) -> Self;
+}
+
+pub trait SetAccess {
+    fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
+    fn range_write<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
 }
 
 pub trait Access {

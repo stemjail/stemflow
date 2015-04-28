@@ -12,10 +12,12 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use collections::{Bound, BTreeSet};
+use collections::btree_set::Range;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use super::{Action, Access, vec2opt, VecAccess};
+use super::{Action, Access, VecAccess, SetAccess, vec2opt};
 
 // Test
 #[allow(unused_imports)]
@@ -148,6 +150,21 @@ impl VecAccess for Vec<Rc<FileAccess>> {
     }
 }
 
+// TODO: Split FileAccess into a read set and a write set?
+impl SetAccess for BTreeSet<Rc<FileAccess>> {
+    fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>> {
+        // The root is absolute, no possible error
+        let read_root = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/")), Action::Read).unwrap());
+        self.range(Bound::Unbounded, Bound::Included(&read_root))
+    }
+
+    fn range_write<'a>(&'a self) -> Range<'a, Rc<FileAccess>> {
+        // The root is absolute, no possible error
+        let read_root = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/")), Action::Read).unwrap());
+        self.range(Bound::Excluded(&read_root), Bound::Unbounded)
+    }
+}
+
 
 pub fn new_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
     let path = path.as_ref();
@@ -179,10 +196,39 @@ macro_rules! let_dom {
 
 #[cfg(test)]
 mod tests {
-    use {Access, Action, Domain, RcDomain, DomainKind, new_path, FileAccess, ResPool, vec2opt};
+    use {Access, Action, Domain, DomainKind, FileAccess, RcDomain, ResPool, SetAccess};
+    use {new_path, vec2opt};
     use collections::BTreeSet;
     use std::path::PathBuf;
     use std::rc::Rc;
+
+    #[test]
+    fn acces_range() {
+        let mut pool = ResPool::new();
+        let acl_read = new_acl!(
+            new_ro "/usr",
+            new_ro "/tmp",
+            new_ro "/opt",
+            new_ro "/home/x",
+            new_ro "/home/doc"
+        );
+        let acl_write = new_acl!(
+            new_wo "/tmp",
+            new_wo "/home/x"
+        );
+        let acl_all = new_acl!(
+            new_ro "/home/doc",
+            new_rw "/home/x",
+            new_ro "/opt",
+            new_ro "/usr",
+            new_rw "/tmp"
+        );
+        let_dom!(pool, dom1, acl_all);
+        let range_read: Vec<_> = dom1.acl.range_read().map(|x| x.clone()).collect();
+        assert_eq!(acl_read, range_read);
+        let range_write: Vec<_> = dom1.acl.range_write().map(|x| x.clone()).collect();
+        assert_eq!(acl_write, range_write);
+    }
 
     #[test]
     fn dom_allow1() {
