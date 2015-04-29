@@ -16,7 +16,7 @@ use collections::{Bound, BTreeSet};
 use collections::btree_set::Range;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::sync::Arc;
 use super::{Action, Access, VecAccess, SetAccess, vec2opt};
 
 // Test
@@ -29,14 +29,14 @@ use std::env;
 /// > /foo(rw) + /foo/bar(ro) => /foo(rw)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileAccess {
-    pub path: Rc<PathBuf>,
+    pub path: Arc<PathBuf>,
     pub action: Action,
 }
 
 macro_rules! new_access {
     ($name: ident, $($action: expr)+) => {
         pub fn $name(path: PathBuf) -> Result<Vec<FileAccess>, ()> {
-            let path = Rc::new(path);
+            let path = Arc::new(path);
             let ret = vec!($(FileAccess::new(path.clone(), $action)),+);
             let len = ret.len();
             let ret: Vec<_> = ret.into_iter().filter_map(|x| x.ok()).collect();
@@ -61,7 +61,7 @@ impl FileAccess {
     new_access!(new_rw, Action::Read Action::Write);
     new_access!(new_wo, Action::Write);
 
-    pub fn new(path: Rc<PathBuf>, action: Action) -> Result<Self, ()> {
+    pub fn new(path: Arc<PathBuf>, action: Action) -> Result<Self, ()> {
         // Enforce absolute path
         if !path.is_absolute() {
             return Err(());
@@ -110,7 +110,7 @@ impl Ord for FileAccess {
     }
 }
 
-impl Access for Rc<FileAccess> {
+impl Access for Arc<FileAccess> {
     fn new_intersect(&self, access: Self) -> Option<Self> {
         // Avoid duplicate ressources
         if *self == access {
@@ -129,13 +129,13 @@ impl Access for Rc<FileAccess> {
     }
 }
 
-impl VecAccess for Vec<Rc<FileAccess>> {
+impl VecAccess for Vec<Arc<FileAccess>> {
     fn uniquify(mut self) -> Self {
         // Greedy sort to remove useless nested access
         self.sort_by(|a, b| { FileAccess::_greedy_ord(true, a, b) });
 
         // Remove useless elements
-        let mut prev: Option<Rc<FileAccess>> = None;
+        let mut prev: Option<Arc<FileAccess>> = None;
         self.into_iter().filter_map(
             |curr| {
                 if let Some(ref p) = prev {
@@ -151,23 +151,23 @@ impl VecAccess for Vec<Rc<FileAccess>> {
 }
 
 // TODO: Split FileAccess into a read set and a write set?
-impl SetAccess for BTreeSet<Rc<FileAccess>> {
-    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool {
+impl SetAccess for BTreeSet<Arc<FileAccess>> {
+    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool {
         match self.range(Bound::Included(access), Bound::Unbounded).next() {
             Some(x) => x.contains(access),
             None => false,
         }
     }
 
-    fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>> {
+    fn range_read<'a>(&'a self) -> Range<'a, Arc<FileAccess>> {
         // The root is absolute, no possible error
-        let read_root = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/")), Action::Read).unwrap());
+        let read_root = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
         self.range(Bound::Unbounded, Bound::Included(&read_root))
     }
 
-    fn range_write<'a>(&'a self) -> Range<'a, Rc<FileAccess>> {
+    fn range_write<'a>(&'a self) -> Range<'a, Arc<FileAccess>> {
         // The root is absolute, no possible error
-        let read_root = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/")), Action::Read).unwrap());
+        let read_root = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
         self.range(Bound::Excluded(&read_root), Bound::Unbounded)
     }
 }
@@ -190,7 +190,7 @@ pub fn new_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
 macro_rules! new_acl {
     ($($new: ident $path: expr),+) => {
         vec!($(FileAccess::$new(new_path($path)).unwrap()),+).into_iter().
-            flat_map(|x| x.into_iter()).map(|x| Rc::new(x)).collect::<Vec<_>>()
+            flat_map(|x| x.into_iter()).map(|x| Arc::new(x)).collect::<Vec<_>>()
     }
 }
 
@@ -207,7 +207,7 @@ mod tests {
     use {new_path, vec2opt};
     use collections::BTreeSet;
     use std::path::PathBuf;
-    use std::rc::Rc;
+    use std::sync::Arc;
 
     #[test]
     fn acces_range() {
@@ -246,7 +246,7 @@ mod tests {
         let dom2_acl = new_acl!(new_rw "/foo/bar");
         let_dom!(pool, dom2, dom2_acl.clone());
 
-        let fa1 = Rc::new(FileAccess::new(Rc::new(PathBuf::from("/foo/bar")), Action::Read).unwrap());
+        let fa1 = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/foo/bar")), Action::Read).unwrap());
         let dom1_acl_inter = vec2opt(dom1_acl.iter().
                                       filter_map(|x| x.new_intersect_all(dom2_acl.clone())).
                                       flat_map(|x| x.into_iter()).collect());
@@ -270,10 +270,10 @@ mod tests {
         let_dom!(pool, dom1, new_acl!(new_rw "/foo"));
         let_dom!(pool, dom2, new_acl!(new_rw "/foo/bar"));
 
-        let bar_path = Rc::new(PathBuf::from("/foo/bar"));
+        let bar_path = Arc::new(PathBuf::from("/foo/bar"));
         let fa1 = set!(
-            Rc::new(FileAccess::new(bar_path.clone(), Action::Read).unwrap()),
-            Rc::new(FileAccess::new(bar_path.clone(), Action::Write).unwrap())
+            Arc::new(FileAccess::new(bar_path.clone(), Action::Read).unwrap()),
+            Arc::new(FileAccess::new(bar_path.clone(), Action::Write).unwrap())
             );
 
         let dom0_raw = dom1.new_intersect(&dom2).unwrap();

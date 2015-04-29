@@ -22,7 +22,7 @@ use collections::{Bound, BTreeMap, BTreeSet};
 use collections::btree_map::Entry;
 use collections::btree_set::Range;
 use std::cmp::Ordering;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub use fs::{new_path, FileAccess};
 
@@ -41,9 +41,9 @@ pub trait VecAccess {
 }
 
 pub trait SetAccess {
-    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool;
-    fn range_read<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
-    fn range_write<'a>(&'a self) -> Range<'a, Rc<FileAccess>>;
+    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool;
+    fn range_read<'a>(&'a self) -> Range<'a, Arc<FileAccess>>;
+    fn range_write<'a>(&'a self) -> Range<'a, Arc<FileAccess>>;
 }
 
 pub trait Access {
@@ -85,8 +85,8 @@ enum DomainKind {
 pub struct Domain {
     pub name: String,
     kind: DomainKind,
-    pub acl: BTreeSet<Rc<FileAccess>>,
-    underlays: BTreeSet<Rc<Domain>>,
+    pub acl: BTreeSet<Arc<FileAccess>>,
+    underlays: BTreeSet<Arc<Domain>>,
 }
 
 // Do not check underlays: do not add duplicate domains
@@ -123,8 +123,8 @@ impl Ord for Domain {
 
 impl Domain {
     /// The ressources should have been uniquified
-    fn new(name: String, kind: DomainKind, acl: BTreeSet<Rc<FileAccess>>,
-           underlays: BTreeSet<Rc<Domain>>) -> Domain {
+    fn new(name: String, kind: DomainKind, acl: BTreeSet<Arc<FileAccess>>,
+           underlays: BTreeSet<Arc<Domain>>) -> Domain {
         Domain {
             name: name,
             kind: kind,
@@ -135,14 +135,14 @@ impl Domain {
 }
 
 pub trait RcDomain {
-    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool;
-    fn allow(&self, acl: &Vec<Rc<FileAccess>>) -> Option<Vec<Rc<FileAccess>>>;
+    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool;
+    fn allow(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Vec<Arc<FileAccess>>>;
     fn new_intersect(&self, other: &Self) -> Option<Self>;
     fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self>;
     fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
     fn leaves(&self) -> BTreeSet<Self>;
     fn leaves_names(&self) -> Vec<String>;
-    fn reachable(&self, acl: &Vec<Rc<FileAccess>>) -> Option<Self>;
+    fn reachable(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Self>;
     fn transition(self, target: Self) -> Option<Self>;
 }
 
@@ -159,13 +159,13 @@ macro_rules! get_allow {
     }
 }
 
-// Hack to use Rc with self
-impl RcDomain for Rc<Domain> {
-    fn is_allowed(&self, access: &Rc<FileAccess>) -> bool {
+// Hack to use Arc with self
+impl RcDomain for Arc<Domain> {
+    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool {
         self.acl.is_allowed(access)
     }
 
-    fn allow(&self, acl: &Vec<Rc<FileAccess>>) -> Option<Vec<Rc<FileAccess>>> {
+    fn allow(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Vec<Arc<FileAccess>>> {
         vec2opt(acl.iter().filter_map(
             |x| {
                 if self.is_allowed(&x) {
@@ -192,7 +192,7 @@ impl RcDomain for Rc<Domain> {
             None
         } else {
             // Overlapping domains
-            Some(Rc::new(Domain::new(self.connect_names(&vec!(other), " ∩ "),
+            Some(Arc::new(Domain::new(self.connect_names(&vec!(other), " ∩ "),
                 DomainKind::Intersection, acl, set!(self.clone(), other.clone()))))
         }
     }
@@ -236,7 +236,7 @@ impl RcDomain for Rc<Domain> {
     }
 
     /// Split the transition in two steps: transition(reachable(acl).unwrap())
-    fn reachable(&self, acl: &Vec<Rc<FileAccess>>) -> Option<Self> {
+    fn reachable(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Self> {
         // Check if all acl are allowed
         let acl_all = |dom: &Self| {
             acl.iter().all(|x| dom.is_allowed(x))
@@ -274,8 +274,8 @@ impl RcDomain for Rc<Domain> {
 
 // TODO: Remove all `fs` module references
 pub struct ResPool {
-    ressources: BTreeMap<Rc<FileAccess>, BTreeSet<Rc<Domain>>>,
-    domains: BTreeSet<Rc<Domain>>,
+    ressources: BTreeMap<Arc<FileAccess>, BTreeSet<Arc<Domain>>>,
+    domains: BTreeSet<Arc<Domain>>,
 }
 
 impl ResPool {
@@ -288,15 +288,15 @@ impl ResPool {
 
     /// Create a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
-    pub fn new_dom(&mut self, name: String, acl: Vec<Rc<FileAccess>>) -> Rc<Domain> {
+    pub fn new_dom(&mut self, name: String, acl: Vec<Arc<FileAccess>>) -> Arc<Domain> {
         let acl: BTreeSet<_> = acl.uniquify().into_iter().collect();
-        let dom = Rc::new(Domain::new(name, DomainKind::Final, acl, BTreeSet::new()));
+        let dom = Arc::new(Domain::new(name, DomainKind::Final, acl, BTreeSet::new()));
         self.insert_dom(dom)
     }
 
     /// Record a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
-    pub fn insert_dom(&mut self, dom: Rc<Domain>) -> Rc<Domain> {
+    pub fn insert_dom(&mut self, dom: Arc<Domain>) -> Arc<Domain> {
         if ! self.domains.insert(dom.clone()) {
             // A BTreeSet::entry() would avoid unwrap()
             return self.domains.range(Bound::Included(&dom), Bound::Included(&dom)).
@@ -316,7 +316,7 @@ impl ResPool {
     }
 
     /// Get (or create) the tighter domain with all this ACL
-    pub fn allow(&mut self, acl: &Vec<Rc<FileAccess>>) -> Option<Rc<Domain>> {
+    pub fn allow(&mut self, acl: &Vec<Arc<FileAccess>>) -> Option<Arc<Domain>> {
         let doms = {
             let allow = |access| {
                 // Take all domains globing the access

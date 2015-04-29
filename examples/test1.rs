@@ -17,8 +17,8 @@
 #[macro_use(let_dom, new_acl)]
 extern crate stemflow;
 
+use std::sync::Arc;
 use stemflow::{new_path, FileAccess, ResPool};
-use std::rc::Rc;
 
 fn main() {
     let mut pool = ResPool::new();
