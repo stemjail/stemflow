@@ -27,7 +27,7 @@ use std::env;
 ///
 /// Remove sub-restrictions:
 /// > /foo(rw) + /foo/bar(ro) => /foo(rw)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct FileAccess {
     pub path: Arc<PathBuf>,
     pub action: Action,

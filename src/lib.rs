@@ -15,13 +15,21 @@
 #![allow(unused_features)]
 #![feature(collections)]
 #![feature(convert)]
+#![feature(hash)]
+#![feature(into_cow)]
+#![feature(rustc_private)]
 
 extern crate collections;
+extern crate graphviz;
 
 use collections::{Bound, BTreeMap, BTreeSet};
 use collections::btree_map::Entry;
 use collections::btree_set::Range;
+use graphviz as dot;
+use std::borrow::{Cow, IntoCow};
 use std::cmp::Ordering;
+use std::fmt;
+use std::hash::{Hash, Hasher, SipHasher, hash};
 use std::sync::Arc;
 
 pub use fs::{new_path, FileAccess};
@@ -51,10 +59,20 @@ pub trait Access {
     fn new_intersect_all(&self, other: Vec<Self>) -> Option<Vec<Self>>;
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Action {
     Read,
     Write,
+}
+
+impl fmt::Display for Action {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        let txt = match *self {
+            Action::Read => "read",
+            Action::Write => "write",
+        };
+        write!(out, "{}", txt)
+    }
 }
 
 fn vec2opt<T>(vec: Vec<T>) -> Option<Vec<T>> {
@@ -75,7 +93,7 @@ fn set2opt<T>(list: BTreeSet<T>) -> Option<BTreeSet<T>> where T: Ord {
 
 /// Intersection domains should precede final domain to allow more transitions
 // TODO: Check order and priority
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum DomainKind {
     Intersection = 1,
     Final = 2,
@@ -131,6 +149,20 @@ impl Domain {
             acl: acl,
             underlays: underlays,
         }
+    }
+}
+
+/// Avoid recursive hashing by assuming the domain name is unique!
+impl Hash for Domain {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.kind.hash(state);
+    }
+}
+
+impl fmt::Display for Domain {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        write!(out, "{}", self.name)
     }
 }
 
@@ -288,6 +320,7 @@ impl ResPool {
 
     /// Create a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
+    // FIXME: Check the domain name uniqueness (cf. domain hash)
     pub fn new_dom(&mut self, name: String, acl: Vec<Arc<FileAccess>>) -> Arc<Domain> {
         let acl: BTreeSet<_> = acl.uniquify().into_iter().collect();
         let dom = Arc::new(Domain::new(name, DomainKind::Final, acl, BTreeSet::new()));
@@ -362,5 +395,75 @@ impl ResPool {
             }
             None => None,
         }
+    }
+}
+
+#[derive(Clone)]
+pub enum Node {
+    Access(Arc<FileAccess>),
+    Dom(Arc<Domain>),
+}
+
+#[derive(Clone)]
+pub struct Edge {
+    source: Node,
+    target: Node,
+}
+
+impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
+    fn graph_id(&'a self) -> dot::Id<'a> {
+        // Regex "[a-zA-Z_][a-zA-Z_0-9]*"
+        dot::Id::new("G_stemflow").unwrap()
+    }
+
+    fn node_id(&'a self, node: &Node) -> dot::Id<'a> {
+        let id = match *node {
+            Node::Access(ref a) => format!("A_{}", hash::<_, SipHasher>(&a.path)),
+            Node::Dom(ref d) => format!("D_{}", hash::<_, SipHasher>(d)),
+        };
+        // Regex "[a-zA-Z_][a-zA-Z_0-9]*"
+        dot::Id::new(id).unwrap()
+    }
+
+    fn node_label(&'a self, node: &Node) -> dot::LabelText<'a> {
+        let name = match *node {
+            Node::Access(ref a) => format!("{}", a.path.display()),
+            Node::Dom(ref d) => format!("{}", d).replace("∩", "&cap;"),
+        };
+        dot::LabelText::LabelStr(name.into_cow())
+    }
+
+    fn edge_label(&'a self, edge: &Edge) -> dot::LabelText<'a> {
+        let name: Cow<_> = match edge.target {
+            Node::Access(ref a) => format!("{}", a.action).into(),
+            Node::Dom(..) => "transition".into(),
+        };
+        dot::LabelText::LabelStr(name)
+    }
+}
+
+impl<'a> dot::GraphWalk<'a, Node, Edge> for ResPool {
+    fn nodes(&self) -> dot::Nodes<'a, Node> {
+        Cow::Owned(self.domains.iter().map(|x| Node::Dom(x.clone()))
+            .chain(self.ressources.keys().map(|x| Node::Access(x.clone())))
+            .collect())
+    }
+
+    fn edges(&'a self) -> dot::Edges<'a, Edge> {
+        self.domains.iter().cloned().flat_map(|x| {
+            x.underlays.iter().cloned()
+                .map(|y| Edge { source: Node::Dom(x.clone()), target: Node::Dom(y) })
+                .chain(x.acl.iter().cloned()
+                       .map(|y| Edge { source: Node::Dom(x.clone()), target: Node::Access(y) }))
+                .collect::<Vec<_>>().into_iter()
+        }).collect::<Vec<_>>().into_cow()
+    }
+
+    fn source(&self, edge: &Edge) -> Node {
+        edge.source.clone()
+    }
+
+    fn target(&self, edge: &Edge) -> Node {
+        edge.target.clone()
     }
 }
