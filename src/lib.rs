@@ -327,6 +327,10 @@ impl ResPool {
         self.insert_dom(dom)
     }
 
+    pub fn contains_dom(&self, dom: &Arc<Domain>) -> bool {
+        self.domains.contains(dom)
+    }
+
     /// Record a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
     pub fn insert_dom(&mut self, dom: Arc<Domain>) -> Arc<Domain> {
