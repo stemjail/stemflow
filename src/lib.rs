@@ -334,11 +334,13 @@ impl ResPool {
     /// Record a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
     pub fn insert_dom(&mut self, dom: Arc<Domain>) -> Arc<Domain> {
+        // If the domain is already registered
         if ! self.domains.insert(dom.clone()) {
             // A BTreeSet::entry() would avoid unwrap()
             return self.domains.range(Bound::Included(&dom), Bound::Included(&dom)).
                 next().unwrap().clone();
         }
+
         for access in dom.acl.iter() {
             match self.ressources.entry(access.clone()) {
                 Entry::Vacant(view) => {
@@ -347,6 +349,13 @@ impl ResPool {
                 Entry::Occupied(view) => {
                     let _ = view.into_mut().insert(dom.clone());
                 }
+            }
+        }
+
+        // Recursive domain insertion
+        for sub in dom.underlays.iter() {
+            if ! self.contains_dom(sub) {
+                let _ = self.insert_dom(sub.clone());
             }
         }
         dom

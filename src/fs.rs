@@ -578,23 +578,31 @@ mod tests {
         assert_eq!(current, Some(dom_check));
 
         let current = current.unwrap();
+        assert!(pool.contains_dom(&current));
+
         let prev = current.clone();
         let next = current.reachable(&new_acl!(new_rw "/a/e/y")).unwrap();
         let current = current.transition(next);
         assert_eq!(current, Some(prev));
 
         let current = current.unwrap();
+        assert!(pool.contains_dom(&current));
+
         let next = current.reachable(&new_acl!(new_rw "/a")).unwrap();
         let current = current.transition(next);
         let dom_check = dom1.new_intersect_all(&vec!(&dom2)).unwrap();
         assert_eq!(current, Some(dom_check));
 
         let current = current.unwrap();
+        assert!(pool.contains_dom(&current));
+
         let next = current.reachable(&new_acl!(new_rw "/f/h")).unwrap();
         let current = current.transition(next);
         assert_eq!(current, Some(dom2.clone()));
 
         let current = current.unwrap();
+        assert!(pool.contains_dom(&current));
+
         let next = current.reachable(&new_acl!(new_rw "/f/g"));
         assert_eq!(next, None);
         let current = current.transition(dom1);
