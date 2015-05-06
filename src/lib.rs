@@ -411,16 +411,102 @@ impl ResPool {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub enum Node {
     Access(Arc<FileAccess>),
     Dom(Arc<Domain>),
 }
 
-#[derive(Clone)]
+/// A node do not take into account the access mode: read, write.
+impl PartialEq for Node {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (&Node::Access(ref x), &Node::Access(ref y)) => x.path == y.path,
+            (&Node::Dom(ref x), &Node::Dom(ref y)) => {
+                // Same as Hash implementation for Domain (name must be unique)
+                x.kind == y.kind && x.name == y.name
+            }
+            (_, _) => false,
+        }
+    }
+}
+
+impl PartialOrd for Node {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (&Node::Access(ref x), &Node::Access(ref y)) => x.path.partial_cmp(&y.path),
+            (&Node::Dom(ref x), &Node::Dom(ref y)) => {
+                // Same as Hash implementation for Domain (name must be unique)
+                match x.kind.partial_cmp(&y.kind) {
+                    None => x.name.partial_cmp(&y.name),
+                    o => o,
+                }
+            }
+            (_, _) => None,
+        }
+    }
+}
+
+impl Ord for Node {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (&Node::Access(ref x), &Node::Access(ref y)) => x.path.cmp(&y.path),
+            (&Node::Dom(ref x), &Node::Dom(ref y)) => {
+                // Same as Hash implementation for Domain (name must be unique)
+                match x.kind.cmp(&y.kind) {
+                    Ordering::Equal => x.name.cmp(&y.name),
+                    o => o,
+                }
+            }
+            (&Node::Dom(_), _) => Ordering::Less,
+            (&Node::Access(_), _) => Ordering::Greater,
+        }
+    }
+}
+
+#[derive(Clone, Eq)]
 pub struct Edge {
     source: Node,
     target: Node,
+}
+
+/// An edge take into account the target kind: domain, access/read, access/write.
+impl PartialEq for Edge {
+    fn eq(&self, other: &Self) -> bool {
+        self.source == other.source &&
+            match (&self.target, &other.target) {
+                (&Node::Access(ref x), &Node::Access(ref y)) => x == y,
+                (s, o) => s == o,
+            }
+    }
+}
+
+impl PartialOrd for Edge {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.source.partial_cmp(&other.source) {
+            None | Some(Ordering::Equal) => {
+                match (&self.target, &other.target) {
+                    (&Node::Access(ref x), &Node::Access(ref y)) => x.partial_cmp(y),
+                    (s, o) => s.partial_cmp(o),
+                }
+            }
+            o => o,
+        }
+    }
+}
+
+impl Ord for Edge {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.source.cmp(&other.source) {
+            Ordering::Equal => {
+                match (&self.target, &other.target) {
+                    (&Node::Access(ref x), &Node::Access(ref y)) => x.cmp(y),
+                    (s, o) => s.cmp(o),
+                }
+            }
+            o => o,
+        }
+    }
 }
 
 impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
@@ -457,19 +543,25 @@ impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
 
 impl<'a> dot::GraphWalk<'a, Node, Edge> for ResPool {
     fn nodes(&self) -> dot::Nodes<'a, Node> {
-        Cow::Owned(self.domains.iter().map(|x| Node::Dom(x.clone()))
+        let mut nodes: Vec<_> = self.domains.iter().map(|x| Node::Dom(x.clone()))
             .chain(self.ressources.keys().map(|x| Node::Access(x.clone())))
-            .collect())
+            .collect();
+        nodes.sort();
+        nodes.dedup();
+        nodes.into_cow()
     }
 
     fn edges(&'a self) -> dot::Edges<'a, Edge> {
-        self.domains.iter().cloned().flat_map(|x| {
+        let mut edges: Vec<_> = self.domains.iter().cloned().flat_map(|x| {
             x.underlays.iter().cloned()
                 .map(|y| Edge { source: Node::Dom(x.clone()), target: Node::Dom(y) })
                 .chain(x.acl.iter().cloned()
                        .map(|y| Edge { source: Node::Dom(x.clone()), target: Node::Access(y) }))
                 .collect::<Vec<_>>().into_iter()
-        }).collect::<Vec<_>>().into_cow()
+        }).collect();
+        edges.sort();
+        edges.dedup();
+        edges.into_cow()
     }
 
     fn source(&self, edge: &Edge) -> Node {
