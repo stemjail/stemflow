@@ -173,7 +173,7 @@ impl SetAccess for BTreeSet<Arc<FileAccess>> {
 }
 
 
-pub fn new_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
+pub fn absolute_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
     let path = path.as_ref();
     if path.is_absolute() {
         path.into()
@@ -189,7 +189,7 @@ pub fn new_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
 #[macro_export]
 macro_rules! new_acl {
     ($($new: ident $path: expr),+) => {
-        vec!($(FileAccess::$new(new_path($path)).unwrap()),+).into_iter().
+        vec!($(FileAccess::$new(absolute_path($path)).unwrap()),+).into_iter().
             flat_map(|x| x.into_iter()).map(|x| Arc::new(x)).collect::<Vec<_>>()
     }
 }
@@ -204,7 +204,7 @@ macro_rules! let_dom {
 #[cfg(test)]
 mod tests {
     use {Access, Action, Domain, DomainKind, FileAccess, RcDomain, ResPool, SetAccess};
-    use {new_path, vec2opt};
+    use {absolute_path, vec2opt};
     use collections::BTreeSet;
     use std::path::PathBuf;
     use std::sync::Arc;

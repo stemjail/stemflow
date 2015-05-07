@@ -32,7 +32,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher, SipHasher, hash};
 use std::sync::Arc;
 
-pub use fs::{new_path, FileAccess};
+pub use fs::{absolute_path, FileAccess};
 
 macro_rules! set {
     ($($v: expr),+) => ({

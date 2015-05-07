@@ -18,7 +18,7 @@
 extern crate stemflow;
 
 use std::sync::Arc;
-use stemflow::{new_path, FileAccess, ResPool};
+use stemflow::{FileAccess, ResPool, absolute_path};
 
 fn main() {
     let mut pool = ResPool::new();

@@ -20,7 +20,7 @@ extern crate graphviz;
 
 use std::fs::File;
 use std::sync::Arc;
-use stemflow::{new_path, FileAccess, ResPool, RcDomain};
+use stemflow::{FileAccess, ResPool, RcDomain, absolute_path};
 
 #[allow(unused_variables)]
 fn main() {
