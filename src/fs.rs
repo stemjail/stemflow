@@ -295,6 +295,53 @@ mod tests {
     }
 
     #[test]
+    fn same_start() {
+        let mut pool = ResPool::new();
+        let_dom!(pool, dom1, new_acl!(
+            new_ro "/a/a",
+            new_ro "/a/b",
+            new_ro "/a/c",
+            new_ro "/aa"
+        ));
+
+        let acl1 = new_acl!(
+            new_ro "/a/bb"
+        );
+
+        assert!(!dom1.acl.is_allowed(&acl1[0]));
+        assert_eq!(dom1.allow(&acl1), None);
+
+        let_dom!(pool, dom2, new_acl!(
+            new_ro "/a/a",
+            new_ro "/a/b",
+            new_ro "/a/c",
+            new_ro "/aa",
+            new_ro "/a"
+        ));
+
+        assert!(dom2.acl.is_allowed(&acl1[0]));
+        assert_eq!(dom2.allow(&acl1), Some(acl1.clone()));
+
+        let_dom!(pool, dom3, new_acl!(
+            new_ro "/a/a",
+            new_rw "/a/b",
+            new_ro "/a/c",
+            new_ro "/aa",
+            new_ro "/a"
+        ));
+
+        let acl2 = new_acl!(
+            new_rw "/a/bb"
+        );
+
+        // acl2 read:
+        assert!(dom3.acl.is_allowed(&acl2[0]));
+        // acl2 write:
+        assert!(!dom3.acl.is_allowed(&acl2[1]));
+        assert_eq!(dom3.allow(&acl2), Some(acl1));
+    }
+
+    #[test]
     fn dom_intersect1() {
         let mut pool = ResPool::new();
         let_dom!(pool, dom1, new_acl!(
