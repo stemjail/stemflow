@@ -30,9 +30,10 @@ use std::borrow::{Cow, IntoCow};
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher, SipHasher, hash};
+use std::ops::Deref;
 use std::sync::Arc;
 
-pub use fs::{absolute_path, FileAccess};
+pub use fs::{absolute_path, FileAccess, RefAccess};
 
 macro_rules! set {
     ($($v: expr),+) => ({
@@ -48,15 +49,31 @@ pub trait VecAccess {
     fn uniquify(mut self) -> Self;
 }
 
-pub trait SetAccess {
-    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool;
-    fn range_read<'a>(&'a self) -> Range<'a, Arc<FileAccess>>;
-    fn range_write<'a>(&'a self) -> Range<'a, Arc<FileAccess>>;
+pub trait SetAccess<A> where A: Access {
+    fn is_allowed(&self, access: &A) -> bool;
+    fn range_read<'a>(&'a self) -> Range<'a, A>;
+    fn range_write<'a>(&'a self) -> Range<'a, A>;
 }
 
-pub trait Access {
-    fn new_intersect(&self, other: Self) -> Option<Self>;
-    fn new_intersect_all(&self, other: Vec<Self>) -> Option<Vec<Self>>;
+pub trait Access: Deref<Target=FileAccess> + Clone + Eq + Ord + Sized {
+    fn new(inner: FileAccess) -> Self;
+
+    fn new_intersect(&self, access: Self) -> Option<Self> {
+        // Avoid duplicate ressources
+        if *self == access {
+            return Some(self.clone());
+        }
+        if self.contains(&*access) {
+            return Some(access);
+        }
+        None
+    }
+
+    // Assume there is no duplicates in `other`
+    fn new_intersect_all(&self, other: Vec<Self>) -> Option<Vec<Self>> {
+        // TODO: Uniquify vec!(self).append(other_access)
+        vec2opt(other.into_iter().filter_map(|x| self.new_intersect(x)).collect())
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -75,7 +92,7 @@ impl fmt::Display for Action {
     }
 }
 
-fn vec2opt<T>(vec: Vec<T>) -> Option<Vec<T>> {
+fn vec2opt<A>(vec: Vec<A>) -> Option<Vec<A>> {
     if vec.len() == 0 {
         None
     } else {
@@ -100,16 +117,16 @@ enum DomainKind {
 }
 
 #[derive(Eq, Debug)]
-pub struct Domain {
+pub struct Domain<A> where A: Access {
     pub name: String,
     kind: DomainKind,
-    pub acl: BTreeSet<Arc<FileAccess>>,
-    underlays: BTreeSet<Arc<Domain>>,
+    pub acl: BTreeSet<A>,
+    underlays: BTreeSet<Arc<Domain<A>>>,
 }
 
 // Do not check underlays: do not add duplicate domains
 // Do not check name: omit equivalent domain with different name
-impl PartialEq for Domain {
+impl<A> PartialEq for Domain<A> where A: Access {
     // TODO: Check ptr value?
     fn eq(&self, other: &Self) -> bool {
         self.kind == self.kind &&
@@ -119,7 +136,7 @@ impl PartialEq for Domain {
 
 // Do not check underlays: optimize sorting
 // Do not check name: optimize sorting
-impl PartialOrd for Domain {
+impl<A> PartialOrd for Domain<A> where A: Access {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.acl.partial_cmp(&other.acl) {
             Some(Ordering::Equal) => self.kind.partial_cmp(&other.kind),
@@ -130,7 +147,7 @@ impl PartialOrd for Domain {
 
 // Do not check underlays: optimize sorting
 // Do not check name: optimize sorting
-impl Ord for Domain {
+impl<A> Ord for Domain<A> where A: Access {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.acl.cmp(&other.acl) {
             Ordering::Equal => self.kind.cmp(&other.kind),
@@ -139,10 +156,10 @@ impl Ord for Domain {
     }
 }
 
-impl Domain {
+impl<A> Domain<A> where A: Access {
     /// The ressources should have been uniquified
-    fn new(name: String, kind: DomainKind, acl: BTreeSet<Arc<FileAccess>>,
-           underlays: BTreeSet<Arc<Domain>>) -> Domain {
+    fn new(name: String, kind: DomainKind, acl: BTreeSet<A>,
+           underlays: BTreeSet<Arc<Domain<A>>>) -> Domain<A> {
         Domain {
             name: name,
             kind: kind,
@@ -153,28 +170,28 @@ impl Domain {
 }
 
 /// Avoid recursive hashing by assuming the domain name is unique!
-impl Hash for Domain {
+impl<A> Hash for Domain<A> where A: Access {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
         self.kind.hash(state);
     }
 }
 
-impl fmt::Display for Domain {
+impl<A> fmt::Display for Domain<A> where A: Access {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
         write!(out, "{}", self.name)
     }
 }
 
-pub trait RcDomain {
-    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool;
-    fn allow(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Vec<Arc<FileAccess>>>;
+pub trait RcDomain<A> where A: Access {
+    fn is_allowed(&self, access: &A) -> bool;
+    fn allow(&self, acl: &Vec<A>) -> Option<Vec<A>>;
     fn new_intersect(&self, other: &Self) -> Option<Self>;
     fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self>;
     fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
     fn leaves(&self) -> BTreeSet<Self>;
     fn leaves_names(&self) -> Vec<String>;
-    fn reachable(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Self>;
+    fn reachable(&self, acl: &Vec<A>) -> Option<Self>;
     fn transition(self, target: Self) -> Option<Self>;
 }
 
@@ -192,12 +209,12 @@ macro_rules! get_allow {
 }
 
 // Hack to use Arc with self
-impl RcDomain for Arc<Domain> {
-    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool {
+impl<A> RcDomain<A> for Arc<Domain<A>> where A: Access {
+    fn is_allowed(&self, access: &A) -> bool {
         self.acl.is_allowed(access)
     }
 
-    fn allow(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Vec<Arc<FileAccess>>> {
+    fn allow(&self, acl: &Vec<A>) -> Option<Vec<A>> {
         vec2opt(acl.iter().filter_map(
             |x| {
                 if self.is_allowed(&x) {
@@ -268,7 +285,7 @@ impl RcDomain for Arc<Domain> {
     }
 
     /// Split the transition in two steps: transition(reachable(acl).unwrap())
-    fn reachable(&self, acl: &Vec<Arc<FileAccess>>) -> Option<Self> {
+    fn reachable(&self, acl: &Vec<A>) -> Option<Self> {
         // Check if all acl are allowed
         let acl_all = |dom: &Self| {
             acl.iter().all(|x| dom.is_allowed(x))
@@ -305,13 +322,13 @@ impl RcDomain for Arc<Domain> {
 
 
 // TODO: Remove all `fs` module references
-pub struct ResPool {
-    ressources: BTreeMap<Arc<FileAccess>, BTreeSet<Arc<Domain>>>,
-    domains: BTreeSet<Arc<Domain>>,
+pub struct ResPool<A> where A: Access {
+    ressources: BTreeMap<A, BTreeSet<Arc<Domain<A>>>>,
+    domains: BTreeSet<Arc<Domain<A>>>,
 }
 
-impl ResPool {
-    pub fn new() -> ResPool {
+impl<A> ResPool<A> where A: Access {
+    pub fn new() -> ResPool<A> {
         ResPool {
             ressources: BTreeMap::new(),
             domains: BTreeSet::new(),
@@ -321,19 +338,19 @@ impl ResPool {
     /// Create a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
     // FIXME: Check the domain name uniqueness (cf. domain hash)
-    pub fn new_dom(&mut self, name: String, acl: Vec<Arc<FileAccess>>) -> Arc<Domain> {
+    pub fn new_dom(&mut self, name: String, acl: Vec<A>) -> Arc<Domain<A>> {
         let acl: BTreeSet<_> = acl.uniquify().into_iter().collect();
         let dom = Arc::new(Domain::new(name, DomainKind::Final, acl, BTreeSet::new()));
         self.insert_dom(dom)
     }
 
-    pub fn contains_dom(&self, dom: &Arc<Domain>) -> bool {
+    pub fn contains_dom(&self, dom: &Arc<Domain<A>>) -> bool {
         self.domains.contains(dom)
     }
 
     /// Record a domain if it doesn't have a twin or return an existing equivalent domain (can have
     /// a different name).
-    pub fn insert_dom(&mut self, dom: Arc<Domain>) -> Arc<Domain> {
+    pub fn insert_dom(&mut self, dom: Arc<Domain<A>>) -> Arc<Domain<A>> {
         // If the domain is already registered
         if ! self.domains.insert(dom.clone()) {
             // A BTreeSet::entry() would avoid unwrap()
@@ -362,7 +379,7 @@ impl ResPool {
     }
 
     /// Get (or create) the tighter domain with all this ACL
-    pub fn allow(&mut self, acl: &Vec<Arc<FileAccess>>) -> Option<Arc<Domain>> {
+    pub fn allow(&mut self, acl: &Vec<A>) -> Option<Arc<Domain<A>>> {
         let doms = {
             let allow = |access| {
                 // Take all domains globing the access
@@ -412,13 +429,13 @@ impl ResPool {
 }
 
 #[derive(Clone, Eq)]
-pub enum Node {
-    Access(Arc<FileAccess>),
-    Dom(Arc<Domain>),
+pub enum Node<A> where A: Access {
+    Access(A),
+    Dom(Arc<Domain<A>>),
 }
 
 /// A node do not take into account the access mode: read, write.
-impl PartialEq for Node {
+impl<A> PartialEq for Node<A> where A: Access {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (&Node::Access(ref x), &Node::Access(ref y)) => x.path == y.path,
@@ -431,7 +448,7 @@ impl PartialEq for Node {
     }
 }
 
-impl PartialOrd for Node {
+impl<A> PartialOrd for Node<A> where A: Access {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (&Node::Access(ref x), &Node::Access(ref y)) => x.path.partial_cmp(&y.path),
@@ -447,7 +464,7 @@ impl PartialOrd for Node {
     }
 }
 
-impl Ord for Node {
+impl<A> Ord for Node<A> where A: Access {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (&Node::Access(ref x), &Node::Access(ref y)) => x.path.cmp(&y.path),
@@ -465,13 +482,13 @@ impl Ord for Node {
 }
 
 #[derive(Clone, Eq)]
-pub struct Edge {
-    source: Node,
-    target: Node,
+pub struct Edge<A> where A: Access {
+    source: Node<A>,
+    target: Node<A>,
 }
 
 /// An edge take into account the target kind: domain, access/read, access/write.
-impl PartialEq for Edge {
+impl<A> PartialEq for Edge<A> where A: Access {
     fn eq(&self, other: &Self) -> bool {
         self.source == other.source &&
             match (&self.target, &other.target) {
@@ -481,7 +498,7 @@ impl PartialEq for Edge {
     }
 }
 
-impl PartialOrd for Edge {
+impl<A> PartialOrd for Edge<A> where A: Access {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match self.source.partial_cmp(&other.source) {
             None | Some(Ordering::Equal) => {
@@ -495,7 +512,7 @@ impl PartialOrd for Edge {
     }
 }
 
-impl Ord for Edge {
+impl<A> Ord for Edge<A> where A: Access {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.source.cmp(&other.source) {
             Ordering::Equal => {
@@ -509,13 +526,13 @@ impl Ord for Edge {
     }
 }
 
-impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
+impl<'a, A> dot::Labeller<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access {
     fn graph_id(&'a self) -> dot::Id<'a> {
         // Regex "[a-zA-Z_][a-zA-Z_0-9]*"
         dot::Id::new("G_stemflow").unwrap()
     }
 
-    fn node_id(&'a self, node: &Node) -> dot::Id<'a> {
+    fn node_id(&'a self, node: &Node<A>) -> dot::Id<'a> {
         let id = match *node {
             Node::Access(ref a) => format!("A_{}", hash::<_, SipHasher>(&a.path)),
             Node::Dom(ref d) => format!("D_{}", hash::<_, SipHasher>(d)),
@@ -524,7 +541,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
         dot::Id::new(id).unwrap()
     }
 
-    fn node_label(&'a self, node: &Node) -> dot::LabelText<'a> {
+    fn node_label(&'a self, node: &Node<A>) -> dot::LabelText<'a> {
         let name = match *node {
             Node::Access(ref a) => format!("{}", a.path.display()),
             Node::Dom(ref d) => format!("{}", d).replace("∩", "&cap;"),
@@ -532,7 +549,7 @@ impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
         dot::LabelText::LabelStr(name.into_cow())
     }
 
-    fn edge_label(&'a self, edge: &Edge) -> dot::LabelText<'a> {
+    fn edge_label(&'a self, edge: &Edge<A>) -> dot::LabelText<'a> {
         let name: Cow<_> = match edge.target {
             Node::Access(ref a) => format!("{}", a.action).into(),
             Node::Dom(..) => "transition".into(),
@@ -541,8 +558,8 @@ impl<'a> dot::Labeller<'a, Node, Edge> for ResPool {
     }
 }
 
-impl<'a> dot::GraphWalk<'a, Node, Edge> for ResPool {
-    fn nodes(&self) -> dot::Nodes<'a, Node> {
+impl<'a, A> dot::GraphWalk<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access {
+    fn nodes(&self) -> dot::Nodes<'a, Node<A>> {
         let mut nodes: Vec<_> = self.domains.iter().map(|x| Node::Dom(x.clone()))
             .chain(self.ressources.keys().map(|x| Node::Access(x.clone())))
             .collect();
@@ -551,7 +568,7 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for ResPool {
         nodes.into_cow()
     }
 
-    fn edges(&'a self) -> dot::Edges<'a, Edge> {
+    fn edges(&'a self) -> dot::Edges<'a, Edge<A>> {
         let mut edges: Vec<_> = self.domains.iter().cloned().flat_map(|x| {
             x.underlays.iter().cloned()
                 .map(|y| Edge { source: Node::Dom(x.clone()), target: Node::Dom(y) })
@@ -564,11 +581,11 @@ impl<'a> dot::GraphWalk<'a, Node, Edge> for ResPool {
         edges.into_cow()
     }
 
-    fn source(&self, edge: &Edge) -> Node {
+    fn source(&self, edge: &Edge<A>) -> Node<A> {
         edge.source.clone()
     }
 
-    fn target(&self, edge: &Edge) -> Node {
+    fn target(&self, edge: &Edge<A>) -> Node<A> {
         edge.target.clone()
     }
 }

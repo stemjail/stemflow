@@ -16,8 +16,9 @@ use collections::{Bound, BTreeSet};
 use collections::btree_set::Range;
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
-use super::{Action, Access, VecAccess, SetAccess, vec2opt};
+use super::{Action, Access, VecAccess, SetAccess};
 
 // Test
 #[allow(unused_imports)]
@@ -111,31 +112,27 @@ impl Ord for FileAccess {
 }
 
 impl Access for Arc<FileAccess> {
-    fn new_intersect(&self, access: Self) -> Option<Self> {
-        // Avoid duplicate ressources
-        if *self == access {
-            return Some(self.clone());
-        }
-        if self.contains(&*access) {
-            return Some(access);
-        }
-        None
-    }
-
-    // Assume there is no duplicates in `other`
-    fn new_intersect_all(&self, other: Vec<Self>) -> Option<Vec<Self>> {
-        // TODO: Uniquify vec!(self).append(other_access)
-        vec2opt(other.into_iter().filter_map(|x| self.new_intersect(x)).collect())
+    fn new(inner: FileAccess) -> Arc<FileAccess> {
+        Arc::new(inner)
     }
 }
 
-impl VecAccess for Vec<Arc<FileAccess>> {
+impl Access for Rc<FileAccess> {
+    fn new(inner: FileAccess) -> Rc<FileAccess> {
+        Rc::new(inner)
+    }
+}
+
+/// Default FileAccess dereferencer
+pub type RefAccess = Arc<FileAccess>;
+
+impl<A> VecAccess for Vec<A> where A: Access {
     fn uniquify(mut self) -> Self {
         // Greedy sort to remove useless nested access
         self.sort_by(|a, b| { FileAccess::_greedy_ord(true, a, b) });
 
         // Remove useless elements
-        let mut prev: Option<Arc<FileAccess>> = None;
+        let mut prev: Option<A> = None;
         self.into_iter().filter_map(
             |curr| {
                 if let Some(ref p) = prev {
@@ -151,23 +148,23 @@ impl VecAccess for Vec<Arc<FileAccess>> {
 }
 
 // TODO: Split FileAccess into a read set and a write set?
-impl SetAccess for BTreeSet<Arc<FileAccess>> {
-    fn is_allowed(&self, access: &Arc<FileAccess>) -> bool {
+impl<A> SetAccess<A> for BTreeSet<A> where A: Access {
+    fn is_allowed(&self, access: &A) -> bool {
         match self.range(Bound::Included(access), Bound::Unbounded).next() {
             Some(x) => x.contains(access),
             None => false,
         }
     }
 
-    fn range_read<'a>(&'a self) -> Range<'a, Arc<FileAccess>> {
+    fn range_read<'a>(&'a self) -> Range<'a, A> {
         // The root is absolute, no possible error
-        let read_root = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
+        let read_root = A::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
         self.range(Bound::Unbounded, Bound::Included(&read_root))
     }
 
-    fn range_write<'a>(&'a self) -> Range<'a, Arc<FileAccess>> {
+    fn range_write<'a>(&'a self) -> Range<'a, A> {
         // The root is absolute, no possible error
-        let read_root = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
+        let read_root = A::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
         self.range(Bound::Excluded(&read_root), Bound::Unbounded)
     }
 }
@@ -190,7 +187,7 @@ pub fn absolute_path<T>(path: T) -> PathBuf where T: AsRef<Path> {
 macro_rules! new_acl {
     ($($new: ident $path: expr),+) => {
         vec!($(FileAccess::$new(absolute_path($path)).unwrap()),+).into_iter().
-            flat_map(|x| x.into_iter()).map(|x| Arc::new(x)).collect::<Vec<_>>()
+            flat_map(|x| x.into_iter()).map(|x| RefAccess::new(x)).collect::<Vec<_>>()
     }
 }
 
@@ -203,7 +200,7 @@ macro_rules! let_dom {
 
 #[cfg(test)]
 mod tests {
-    use {Access, Action, Domain, DomainKind, FileAccess, RcDomain, ResPool, SetAccess};
+    use {Access, Action, RefAccess, Domain, DomainKind, FileAccess, RcDomain, ResPool, SetAccess};
     use {absolute_path, vec2opt};
     use collections::BTreeSet;
     use std::path::PathBuf;
@@ -246,7 +243,7 @@ mod tests {
         let dom2_acl = new_acl!(new_rw "/foo/bar");
         let_dom!(pool, dom2, dom2_acl.clone());
 
-        let fa1 = Arc::new(FileAccess::new(Arc::new(PathBuf::from("/foo/bar")), Action::Read).unwrap());
+        let fa1 = RefAccess::new(FileAccess::new(Arc::new(PathBuf::from("/foo/bar")), Action::Read).unwrap());
         let dom1_acl_inter = vec2opt(dom1_acl.iter().
                                       filter_map(|x| x.new_intersect_all(dom2_acl.clone())).
                                       flat_map(|x| x.into_iter()).collect());
@@ -272,8 +269,8 @@ mod tests {
 
         let bar_path = Arc::new(PathBuf::from("/foo/bar"));
         let fa1 = set!(
-            Arc::new(FileAccess::new(bar_path.clone(), Action::Read).unwrap()),
-            Arc::new(FileAccess::new(bar_path.clone(), Action::Write).unwrap())
+            RefAccess::new(FileAccess::new(bar_path.clone(), Action::Read).unwrap()),
+            RefAccess::new(FileAccess::new(bar_path.clone(), Action::Write).unwrap())
             );
 
         let dom0_raw = dom1.new_intersect(&dom2).unwrap();

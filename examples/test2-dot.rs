@@ -19,8 +19,10 @@ extern crate stemflow;
 extern crate graphviz;
 
 use std::fs::File;
-use std::sync::Arc;
+use std::rc::Rc;
 use stemflow::{FileAccess, ResPool, RcDomain, absolute_path};
+
+type RefAccess = Rc<FileAccess>;
 
 #[allow(unused_variables)]
 fn main() {
