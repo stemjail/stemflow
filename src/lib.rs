@@ -51,11 +51,16 @@ pub trait VecAccess {
 
 pub trait SetAccess<A> where A: Access {
     fn is_allowed(&self, access: &A) -> bool;
+    fn insert_dedup(&mut self, access: A) -> bool;
     fn range_read<'a>(&'a self) -> Range<'a, A>;
     fn range_write<'a>(&'a self) -> Range<'a, A>;
+
+    fn insert_dedup_all<I>(&mut self, access_iter: I) -> bool where I: Iterator<Item=A> {
+        access_iter.fold(true, |prev, x| self.insert_dedup(x) && prev)
+    }
 }
 
-pub trait Access: Deref<Target=FileAccess> + Clone + Eq + Ord + Sized {
+pub trait Access: Deref<Target=FileAccess> + Clone + fmt::Debug + Eq + Ord + Sized {
     fn new(inner: FileAccess) -> Self;
 
     fn new_intersect(&self, access: Self) -> Option<Self> {

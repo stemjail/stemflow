@@ -156,6 +156,20 @@ impl<A> SetAccess<A> for BTreeSet<A> where A: Access {
         }
     }
 
+    /// Return true if `access` is new (and inserted)
+    fn insert_dedup(&mut self, access: A) -> bool {
+        if self.is_allowed(&access) {
+            // Already there
+            return false;
+        }
+        let dups: BTreeSet<_> = self.range(Bound::Unbounded, Bound::Included(&access)).rev()
+            .take_while(|x| access.contains(x)).cloned().collect();
+        for dup in dups {
+            self.remove(&dup);
+        }
+        self.insert(access)
+    }
+
     fn range_read<'a>(&'a self) -> Range<'a, A> {
         // The root is absolute, no possible error
         let read_root = A::new(FileAccess::new(Arc::new(PathBuf::from("/")), Action::Read).unwrap());
@@ -651,5 +665,53 @@ mod tests {
         assert_eq!(next, None);
         let current = current.transition(dom1);
         assert_eq!(current, None);
+    }
+
+    #[test]
+    fn set_insert_dedup() {
+        let mut acl0: BTreeSet<Arc<FileAccess>> = new_acl!(
+            new_ro "/a",
+            new_rw "/aa",
+            new_wo "/a/b",
+            new_ro "/b",
+            new_rw "/x/y/z"
+        ).into_iter().collect();
+        let mut acl0_ref = acl0.clone();
+
+        let acl1_dup = new_acl!(new_ro "/a/a").into_iter().next().unwrap();
+        assert!(!acl0.insert_dedup(acl1_dup));
+        assert_eq!(acl0, acl0_ref);
+
+        let acl2_new = new_acl!(new_wo "/a/a").into_iter().next().unwrap();
+        assert!(acl0.insert_dedup(acl2_new.clone()));
+        assert!(acl0_ref.insert(acl2_new));
+        assert_eq!(acl0, acl0_ref);
+
+        let acl1_ref: BTreeSet<Arc<FileAccess>> = new_acl!(
+            new_rw "/a",
+            new_rw "/aa",
+            new_ro "/b",
+            new_rw "/x/y/z"
+        ).into_iter().collect();
+        let acl3_new = new_acl!(new_wo "/a").into_iter().next().unwrap();
+        assert!(acl0.insert_dedup(acl3_new));
+        assert_eq!(acl0, acl1_ref);
+
+        let acl2_ref: BTreeSet<Arc<FileAccess>> = new_acl!(
+            new_rw "/a",
+            new_rw "/aa",
+            new_ro "/b",
+            new_rw "/bb",
+            new_ro "/x/y",
+            new_wo "/x/y/z",
+            new_ro "/x/X"
+        ).into_iter().collect();
+        let acl4_new = new_acl!(
+            new_rw "/bb",
+            new_ro "/x/y",
+            new_ro "/x/X"
+        );
+        assert!(acl4_new.into_iter().fold(true, |prev, x| prev && acl0.insert_dedup(x)));
+        assert_eq!(acl0, acl2_ref);
     }
 }
