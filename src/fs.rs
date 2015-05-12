@@ -638,6 +638,16 @@ mod tests {
         let current = current.unwrap();
         assert!(pool.contains_dom(&current));
 
+        // Fork: bypass an intermediate domain (dom1 intersect dom2)
+        {
+            let current = current.clone();
+            let next = current.reachable(&new_acl!(new_rw "/f/h"));
+            assert_eq!(next, Some(dom2.clone()));
+            let next = next.unwrap();
+            let current = current.transition(next.clone());
+            assert_eq!(current, Some(next));
+        }
+
         let prev = current.clone();
         let next = current.reachable(&new_acl!(new_rw "/a/e/y")).unwrap();
         let current = current.transition(next);

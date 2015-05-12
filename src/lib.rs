@@ -251,11 +251,7 @@ impl<A> RefDom<A> for Arc<Domain<A>> where A: Access {
         if target == self {
             Some(self)
         } else {
-            // Exact match
-            match self.underlays.range(Bound::Included(&target), Bound::Included(&target)).next() {
-                Some(x) => Some(x.clone()),
-                None => None,
-            }
+            self.transition_underlays(&target)
         }
     }
 }
@@ -266,6 +262,7 @@ trait RefDomPriv {
     fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
     fn leaves_names(&self) -> Vec<String>;
     fn leaves(&self) -> BTreeSet<Self>;
+    fn transition_underlays(&self, target: &Self) -> Option<Self>;
 }
 
 impl<A> RefDomPriv for Arc<Domain<A>> where A: Access {
@@ -324,6 +321,21 @@ impl<A> RefDomPriv for Arc<Domain<A>> where A: Access {
         } else {
             // Recursive call
             self.underlays.iter().flat_map(|x| x.leaves().into_iter()).collect()
+        }
+    }
+
+    fn transition_underlays(&self, target: &Self) -> Option<Self> {
+        match self.underlays.range(Bound::Included(&target), Bound::Included(&target)).next() {
+            Some(x) => Some(x.clone()),
+            None => {
+                for dom in self.underlays.iter() {
+                    match dom.transition_underlays(&target) {
+                        Some(d) => return Some(d),
+                        None => {}
+                    }
+                }
+                None
+            }
         }
     }
 }
