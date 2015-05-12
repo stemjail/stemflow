@@ -20,7 +20,7 @@ extern crate graphviz;
 
 use std::fs::File;
 use std::rc::Rc;
-use stemflow::{FileAccess, ResPool, RcDomain, absolute_path};
+use stemflow::{FileAccess, RefDom, ResPool, absolute_path};
 
 type RefAccess = Rc<FileAccess>;
 

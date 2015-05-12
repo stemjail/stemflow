@@ -214,7 +214,7 @@ macro_rules! let_dom {
 
 #[cfg(test)]
 mod tests {
-    use {Access, Action, RefAccess, Domain, DomainKind, FileAccess, RcDomain, ResPool, SetAccess};
+    use {Access, Action, RefAccess, Domain, DomainKind, FileAccess, RefDom, RefDomPriv, ResPool, SetAccess};
     use {absolute_path, vec2opt};
     use collections::BTreeSet;
     use std::path::PathBuf;

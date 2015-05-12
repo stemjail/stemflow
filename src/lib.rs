@@ -188,14 +188,9 @@ impl<A> fmt::Display for Domain<A> where A: Access {
     }
 }
 
-pub trait RcDomain<A> where A: Access {
+pub trait RefDom<A> where A: Access {
     fn is_allowed(&self, access: &A) -> bool;
     fn allow(&self, acl: &Vec<A>) -> Option<Vec<A>>;
-    fn new_intersect(&self, other: &Self) -> Option<Self>;
-    fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self>;
-    fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
-    fn leaves(&self) -> BTreeSet<Self>;
-    fn leaves_names(&self) -> Vec<String>;
     fn reachable(&self, acl: &Vec<A>) -> Option<Self>;
     fn transition(self, target: Self) -> Option<Self>;
 }
@@ -213,8 +208,8 @@ macro_rules! get_allow {
     }
 }
 
-// Hack to use Arc with self
-impl<A> RcDomain<A> for Arc<Domain<A>> where A: Access {
+// Hack to use Rc/Arc with self
+impl<A> RefDom<A> for Arc<Domain<A>> where A: Access {
     fn is_allowed(&self, access: &A) -> bool {
         self.acl.is_allowed(access)
     }
@@ -230,7 +225,50 @@ impl<A> RcDomain<A> for Arc<Domain<A>> where A: Access {
             }).collect())
     }
 
-    // FIXME: Do not expose to the public API to avoid inconsistent ResPool
+    /// Split the transition in two steps: transition(reachable(acl).unwrap())
+    fn reachable(&self, acl: &Vec<A>) -> Option<Self> {
+        // Check if all ACL are allowed
+        let denied: Vec<_> = acl.iter().filter(|x| !self.is_allowed(x)).cloned().collect();
+        if denied.is_empty() {
+            return Some(self.clone());
+        }
+        self.underlays.iter().fold(None,
+            |prev, x| {
+                // Do not need to re-check the current (domains) allowed ACL because underlays
+                // domains are part of the current intersection.
+                match x.reachable(&denied) {
+                    Some(dom) => match prev {
+                        None => Some(dom),
+                        Some(p) => p.new_intersect(&dom),
+                    },
+                    None => prev,
+                }
+            })
+    }
+
+    /// Useful on the monitor side
+    fn transition(self, target: Self) -> Option<Self> {
+        if target == self {
+            Some(self)
+        } else {
+            // Exact match
+            match self.underlays.range(Bound::Included(&target), Bound::Included(&target)).next() {
+                Some(x) => Some(x.clone()),
+                None => None,
+            }
+        }
+    }
+}
+
+trait RefDomPriv {
+    fn new_intersect(&self, other: &Self) -> Option<Self>;
+    fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self>;
+    fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
+    fn leaves_names(&self) -> Vec<String>;
+    fn leaves(&self) -> BTreeSet<Self>;
+}
+
+impl<A> RefDomPriv for Arc<Domain<A>> where A: Access {
     /// Get an intersection domain
     fn new_intersect(&self, other: &Self) -> Option<Self> {
         // TODO: Replace with BTree range
@@ -252,7 +290,7 @@ impl<A> RcDomain<A> for Arc<Domain<A>> where A: Access {
     }
 
     // FIXME: Only create an intersection domains, not new by pair (cf. underlays)
-    // FIXME: Do not expose to the public API to avoid inconsistent ResPool
+    // TODO: Do flat intersections
     fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self> {
         others.iter().fold(Some(self.clone()),
             |prev, x| {
@@ -286,41 +324,6 @@ impl<A> RcDomain<A> for Arc<Domain<A>> where A: Access {
         } else {
             // Recursive call
             self.underlays.iter().flat_map(|x| x.leaves().into_iter()).collect()
-        }
-    }
-
-    /// Split the transition in two steps: transition(reachable(acl).unwrap())
-    fn reachable(&self, acl: &Vec<A>) -> Option<Self> {
-        // Check if all acl are allowed
-        let acl_all = |dom: &Self| {
-            acl.iter().all(|x| dom.is_allowed(x))
-        };
-        if acl_all(self) {
-            return Some(self.clone());
-        }
-        self.underlays.iter().fold(None,
-            |prev, x| {
-                if acl_all(x) {
-                    match prev {
-                        None => Some(x.clone()),
-                        Some(p) => p.new_intersect(x),
-                    }
-                } else {
-                    prev
-                }
-            })
-    }
-
-    /// Useful on the monitor side
-    fn transition(self, target: Self) -> Option<Self> {
-        if target == self {
-            Some(self)
-        } else {
-            // Exact match
-            match self.underlays.range(Bound::Included(&target), Bound::Included(&target)).next() {
-                Some(x) => Some(x.clone()),
-                None => None,
-            }
         }
     }
 }
