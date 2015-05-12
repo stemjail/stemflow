@@ -1,5 +1,5 @@
 [package]
 
 name = "stemflow"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Mickaël Salaün <mickael.salaun@ssi.gouv.fr>"]
