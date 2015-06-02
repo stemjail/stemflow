@@ -1,6 +1,6 @@
 # StemFlow
 
-StemFlow is an access-control engine library for StemJail.
+StemFlow is an access-control policy engine for StemJail.
 It manage a set of domains who define their access control list.
 A domain can transition to an other iff the destination is a superset of the source.
 
