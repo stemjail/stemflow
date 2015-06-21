@@ -12,10 +12,13 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(unused_features)]
+#![cfg_attr(test, feature(convert))]
+
+#![feature(append)]
+#![feature(btree_range)]
 #![feature(collections)]
-#![feature(convert)]
-#![feature(hash)]
+#![feature(collections_bound)]
+#![feature(hash_default)]
 #![feature(into_cow)]
 #![feature(rustc_private)]
 
