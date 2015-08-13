@@ -309,7 +309,7 @@ impl<A> RefDomPriv for Arc<Domain<A>> where A: Access {
             });
         names.sort();
         names.dedup();
-        names.connect(separator)
+        names.join(separator)
     }
 
     // TODO: Return Vec<&str>
@@ -328,7 +328,7 @@ impl<A> RefDomPriv for Arc<Domain<A>> where A: Access {
     }
 
     fn transition_underlays(&self, target: &Self) -> Option<Self> {
-        match self.underlays.range(Bound::Included(&target), Bound::Included(&target)).next() {
+        match self.underlays.range(Bound::Included(target), Bound::Included(target)).next() {
             Some(x) => Some(x.clone()),
             None => {
                 for dom in self.underlays.iter() {
@@ -555,6 +555,8 @@ impl<'a, A> dot::Labeller<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access {
         dot::Id::new("G_stemflow").unwrap()
     }
 
+    // The `hash()` function is definitely useful
+    #[allow(deprecated)]
     fn node_id(&'a self, node: &Node<A>) -> dot::Id<'a> {
         let id = match *node {
             Node::Access(ref a) => format!("A_{}", hash::<_, SipHasher>(&a.path)),
