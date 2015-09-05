@@ -18,7 +18,6 @@
 #![feature(btree_range)]
 #![feature(collections)]
 #![feature(collections_bound)]
-#![feature(hash_default)]
 #![feature(into_cow)]
 #![feature(rustc_private)]
 
@@ -32,7 +31,7 @@ use graphviz as dot;
 use std::borrow::{Cow, IntoCow};
 use std::cmp::Ordering;
 use std::fmt;
-use std::hash::{Hash, Hasher, SipHasher, hash};
+use std::hash::{Hash, Hasher, SipHasher};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -549,18 +548,22 @@ impl<A> Ord for Edge<A> where A: Access {
     }
 }
 
+fn hash<T: Hash>(t: &T) -> u64 {
+    let mut s = SipHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
 impl<'a, A> dot::Labeller<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access {
     fn graph_id(&'a self) -> dot::Id<'a> {
         // Regex "[a-zA-Z_][a-zA-Z_0-9]*"
         dot::Id::new("G_stemflow").unwrap()
     }
 
-    // The `hash()` function is definitely useful
-    #[allow(deprecated)]
     fn node_id(&'a self, node: &Node<A>) -> dot::Id<'a> {
         let id = match *node {
-            Node::Access(ref a) => format!("A_{}", hash::<_, SipHasher>(&a.path)),
-            Node::Dom(ref d) => format!("D_{}", hash::<_, SipHasher>(d)),
+            Node::Access(ref a) => format!("A_{}", hash(&a.path)),
+            Node::Dom(ref d) => format!("D_{}", hash(d)),
         };
         // Regex "[a-zA-Z_][a-zA-Z_0-9]*"
         dot::Id::new(id).unwrap()
