@@ -190,7 +190,7 @@ impl<A> fmt::Display for Domain<A> where A: Access {
     }
 }
 
-pub trait RefDom<A> where A: Access {
+pub trait RefDom<A> where A: Access, Self: Sized {
     fn is_allowed(&self, access: &A) -> bool;
     fn allow(&self, acl: &Vec<A>) -> Option<Vec<A>>;
     fn reachable(&self, acl: &Vec<A>) -> Option<Self>;
@@ -258,7 +258,7 @@ impl<A> RefDom<A> for Arc<Domain<A>> where A: Access {
     }
 }
 
-trait RefDomPriv {
+trait RefDomPriv where Self: Sized {
     fn new_intersect(&self, other: &Self) -> Option<Self>;
     fn new_intersect_all(&self, others: &Vec<&Self>) -> Option<Self>;
     fn connect_names(&self, others: &Vec<&Self>, separator: &str) -> String;
