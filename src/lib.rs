@@ -14,7 +14,6 @@
 
 #![cfg_attr(test, feature(convert))]
 
-#![feature(append)]
 #![feature(btree_range)]
 #![feature(collections)]
 #![feature(collections_bound)]
