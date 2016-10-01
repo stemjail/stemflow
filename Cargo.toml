@@ -8,3 +8,6 @@ readme = "README.md"
 keywords = ["security", "ACL"]
 license = "LGPL-3.0"
 exclude = [".gitignore"]
+
+[dependencies]
+dot = "0.1"

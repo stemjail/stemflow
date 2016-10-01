@@ -17,15 +17,13 @@
 #![feature(btree_range)]
 #![feature(collections)]
 #![feature(collections_bound)]
-#![feature(rustc_private)]
 
 extern crate collections;
-extern crate graphviz;
+extern crate dot;
 
 use collections::{Bound, BTreeMap, BTreeSet};
 use collections::btree_map::Entry;
 use collections::btree_set::Range;
-use graphviz as dot;
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt;
