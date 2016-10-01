@@ -1,4 +1,4 @@
-// Copyright (C) 2015 Mickaël Salaün
+// Copyright (C) 2015-2016 Mickaël Salaün
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published by
@@ -17,7 +17,6 @@
 #![feature(btree_range)]
 #![feature(collections)]
 #![feature(collections_bound)]
-#![feature(into_cow)]
 #![feature(rustc_private)]
 
 extern crate collections;
@@ -27,7 +26,7 @@ use collections::{Bound, BTreeMap, BTreeSet};
 use collections::btree_map::Entry;
 use collections::btree_set::Range;
 use graphviz as dot;
-use std::borrow::{Cow, IntoCow};
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::fmt;
 use std::hash::{Hash, Hasher, SipHasher};
@@ -573,7 +572,7 @@ impl<'a, A> dot::Labeller<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access {
             Node::Access(ref a) => format!("{}", a.path.display()),
             Node::Dom(ref d) => format!("{}", d).replace("∩", "&cap;"),
         };
-        dot::LabelText::LabelStr(name.into_cow())
+        dot::LabelText::LabelStr(name.into())
     }
 
     fn edge_label(&'a self, edge: &Edge<A>) -> dot::LabelText<'a> {
@@ -592,7 +591,7 @@ impl<'a, A> dot::GraphWalk<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access 
             .collect();
         nodes.sort();
         nodes.dedup();
-        nodes.into_cow()
+        nodes.into()
     }
 
     fn edges(&'a self) -> dot::Edges<'a, Edge<A>> {
@@ -605,7 +604,7 @@ impl<'a, A> dot::GraphWalk<'a, Node<A>, Edge<A>> for ResPool<A> where A: Access 
         }).collect();
         edges.sort();
         edges.dedup();
-        edges.into_cow()
+        edges.into()
     }
 
     fn source(&self, edge: &Edge<A>) -> Node<A> {
