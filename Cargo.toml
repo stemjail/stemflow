@@ -1,6 +1,6 @@
 [package]
 name = "stemflow"
-version = "0.5.2"
+version = "0.5.3"
 authors = ["Mickaël Salaün <mic@digikod.net>"]
 description = "Access-control policy engine used by StemJail"
 repository = "https://github.com/stemjail/stemflow"
